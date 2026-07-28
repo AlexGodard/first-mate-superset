@@ -1,0 +1,11 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+
+# Per-machine configuration.
+registry.md
+config/crew-dispatch.json
+
+# Durable watcher/runtime state. Keep the directory's own ignore policy.
+state/*
+!state/.gitignore

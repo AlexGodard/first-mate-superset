@@ -1,0 +1,26 @@
+{
+  "_comment": "Copy to config/crew-dispatch.json (gitignored, local) to activate. The FIRST MATE (you, the supervisor) reads these rules and picks the best-fit profile with judgment, then passes concrete --model/--effort flags to fm-spawn.sh. The shell scripts DO NOT parse these rules — they only enforce that when this file exists, a ship/scout dispatch must carry an explicit --model (the consultation backstop, so the rules are never silently skipped). A per-task captain override ('use haiku for this') always wins over the rules. Claude models launch on the Superset custom agent labeled Claude; gpt-*/codex-* models launch on the agent labeled Codex. An omitted model/effort means the instance default is used (no flag). Write bare model IDs here — superset-launch appends the [1m] suffix to configured 1M-capable Claude models; an explicit bracket suffix is respected as-is, and other model IDs are untouched.",
+  "rules": [
+    {
+      "when": "The task is a trivial mechanical edit — a rote rename, formatting sweep, targeted typo fix, dependency bump, or simple file gathering.",
+      "use": { "model": "claude-sonnet-5", "effort": "low" },
+      "why": "Cheapest fast profile when the task is narrow and low-ambiguity."
+    },
+    {
+      "when": "The task is a focused, well-scoped bug fix or a small single-file feature with clear acceptance criteria.",
+      "use": { "model": "claude-sonnet-5", "effort": "medium" },
+      "why": "Mid profile: capable enough for real code, cheaper than Opus for bounded work."
+    },
+    {
+      "when": "The task is a big or ambiguous multi-file feature, a risky refactor, a subtle concurrency/perf bug, or work that requires holding many moving parts in mind.",
+      "use": { "model": "claude-opus-4-8", "effort": "high" },
+      "why": "Strongest profile for broad design and hard implementation work."
+    },
+    {
+      "when": "A read-only scout / investigation that just has to read code and report — no edits, no risk.",
+      "use": { "model": "claude-sonnet-5", "effort": "medium" },
+      "why": "Scouts are throwaway and don't ship; a cheap model reads and summarizes fine."
+    }
+  ],
+  "default": { "model": "claude-opus-4-8", "effort": "medium" }
+}
