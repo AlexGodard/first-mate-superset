@@ -140,8 +140,8 @@ fi
 # explicitly — the scripts never parse the rules, so this guard is what keeps
 # them from being silently skipped. FM_DRY_RUN is exempt: dry-run is exactly how
 # the supervisor previews a resolution before committing to it. Ported from
-# upstream firstmate (AGENTS.md "consultation backstop"). See SKILL.md "Crewmate
-# model & the dispatch profile".
+# upstream firstmate (AGENTS.md "consultation backstop"). See
+# reference/models.md "The dispatch profile".
 if [ -z "${FM_DRY_RUN:-}" ] && [ -z "$CREW_MODEL" ] && [ -f "$CONFIG/crew-dispatch.json" ]; then
   echo "error: config/crew-dispatch.json is active — pass an explicit --model resolved from the dispatch rules (the consultation backstop, so the profile is never silently skipped). Preview with FM_DRY_RUN=1." >&2
   exit 2
@@ -240,6 +240,41 @@ fi
 if ! grep -q '^terminalId=' "$WT/.firstmate/superset" 2>/dev/null; then
   echo "warning: no terminalId captured — agent launch unconfirmed; live-send lane unavailable." >&2
   echo "warning: verify the crewmate is alive (fm-crew-state.sh $WT, or the desktop pane) before relying on it." >&2
+fi
+
+# 7.5. Provision the worktree's dev environment (per-app env files, ports,
+# Convex dev deployment) ourselves. Superset stopped running the repo's
+# `.superset/config.json` setup hook for CLI-created workspaces (~Jul 2026:
+# fired Jul 3/15, dead by Jul 23) — crews landed in bare worktrees, and every
+# no-mistakes gate worktree then failed sibling adoption ("no same-branch
+# provisioned sibling"), so UI screenshots were impossible fleet-wide.
+# Backgrounded: cold setup takes minutes, the crew implements long before it
+# needs a dev server, and the predev guard blocks `dev` until the sentinel
+# lands. Local dispatch only; no-op when the repo has no setup script or the
+# sentinel already exists (i.e. the desktop hook works again).
+# Every branch logs its decision: the 2026-08-02 fleet post-mortem burned hours
+# because a silent skip was indistinguishable from a lost log line. The runner
+# (fm-provision.sh) retries once, logs DURABLY under ~/.local/state/fm/provision/
+# (survives ws delete; .firstmate/provision.log symlinks to it), and writes
+# .firstmate/provision-failed on final failure — fm-fleet.sh surfaces that
+# marker. Since PR #1009 the setup script itself is herd-safe (per-worktree
+# mutex against the desktop hook's run + machine-wide seed slots), so
+# backgrounding one runner per dispatch is safe at any fleet size.
+if [ -n "$HOST" ]; then
+  echo "provisioning: skipped — remote dispatch (--host); the remote's own hook must provision" >&2
+elif [ ! -f "$WT/scripts/superset/setup-worktree.sh" ]; then
+  echo "provisioning: skipped — no scripts/superset/setup-worktree.sh in $WT (repo has no worktree setup)" >&2
+elif [ -f "$WT/.superset/setup-complete" ]; then
+  echo "provisioning: skipped — sentinel already present (desktop hook beat us)" >&2
+else
+  MAIN_CO="$(git -C "$WT" worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2; exit}')"
+  if [ -n "$MAIN_CO" ] && [ "$MAIN_CO" != "$WT" ]; then
+    mkdir -p "$WT/.firstmate"
+    ( nohup "$BIN/fm-provision.sh" "$WT" "$WSID" "$MAIN_CO" >/dev/null 2>&1 & )
+    echo "provisioning: fm-provision.sh backgrounded (log: $WT/.firstmate/provision.log; durable copy in ~/.local/state/fm/provision/)" >&2
+  else
+    echo "warn: could not resolve the main checkout — worktree NOT provisioned; run scripts/superset/setup-worktree.sh in $WT manually" >&2
+  fi
 fi
 
 echo "spawned $KIND $PROJECT branch=$BRANCH mode=$MODE yolo=$YOLO agent=$agent_label model=${CREW_MODEL:-default} effort=${CREW_EFFORT:-default} workspace=$WSID worktree=$WT"

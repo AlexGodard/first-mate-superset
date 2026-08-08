@@ -96,8 +96,18 @@ while IFS= read -r meta; do
     esac
   fi
 
+  # Surface a failed provisioning run (fm-provision.sh marker): the crew may
+  # still be working, but UI evidence is doomed until the first mate intervenes,
+  # so it always counts as needing attention.
+  if [ -f "$dir/.firstmate/provision-failed" ]; then
+    last="$last  [PROVISION-FAILED: dev servers cannot boot — see .firstmate/provision.log]"
+  fi
+
   if [ "$ATTN" = 1 ]; then
-    case "$state" in done|blocked|needs-decision|failed) ;; *) continue ;; esac
+    case "$state" in
+      done|blocked|needs-decision|failed) ;;
+      *) [ -f "$dir/.firstmate/provision-failed" ] || continue ;;
+    esac
   fi
   found=$((found+1))
   if [ "$RAW" = 1 ]; then

@@ -247,12 +247,27 @@ Setup check first: run \`no-mistakes doctor\`; if it reports the repo is not ini
    invoke /no-mistakes, and \`no-mistakes axi run --help\` plus the \`help\` lines in each
    \`axi\` response are authoritative and version-matched to the installed binary.
    Do not hand-edit, commit, or fix findings yourself while a run is active — the pipeline applies every fix.
-Two first-mate-specific rules layer on top of that guidance:
+   Keep \`--intent\` at the level of the goal and acceptance criteria — never bake design
+   contracts into it (API shapes, pagination protocols, bound constants, stream counts).
+   The intent is frozen for the entire run and every review round audits against it
+   verbatim, so a design detail that legitimately evolves mid-review re-flags forever
+   with no way to revise it. Design contracts belong in revisable in-repo docs that
+   pipeline fix rounds can update.
+Three first-mate-specific rules layer on top of that guidance:
 - ask-user findings are not yours to answer: append \`needs-decision: <the finding + options>\` to
   \`.firstmate/status\` and stop. When the decision comes back, feed it to the gate with
   \`no-mistakes axi respond\` and let the pipeline apply it — do not route the question to
   "the user" or implement the fix yourself.
 - Avoid \`--yes\`: the captain, not you, owns the ask-user decisions it would silently auto-resolve.
+- Cap explicit fix rounds at TWO per gate step: you may answer a given step's gate with
+  \`--action fix\` at most twice (the pipeline's internal auto-fix attempts don't count).
+  If the re-review still surfaces findings after your second fix round, stop feeding the
+  loop — triage instead: findings that are genuine blocking defects go to the captain as
+  \`needs-decision: <finding + your recommendation>\`; everything residual (style, scope
+  expansion, architectural preference, hypothetical hardening) gets
+  \`--action approve\` with a one-line note in \`.firstmate/status\` listing what you
+  accepted. Unlimited fix-everything rounds are how runs loop for hours without
+  converging — round three is a human decision, not another rewrite.
 After /no-mistakes reports CI green (the CI-ready return point — do not keep monitoring in the
 background until merge), append \`done: PR <url> checks green\` to \`.firstmate/status\` and stop.
 You are finished. The captain reviews and merges the PR.
@@ -353,6 +368,14 @@ embed them by URL:
    \`gh pr comment <pr-number> --body-file <markdown-file>\` once the PR is open.
    Caption what each frame shows (before vs after, the bug vs the fix).
 Only attach REAL captures you actually rendered -- never fabricate or mock a screenshot.
+If the repo's dev-server guard refuses to start because worktree provisioning is
+incomplete (e.g. a missing \`.superset/setup-complete\` sentinel): dispatch already
+backgrounded a supervised provisioning run -- check \`.firstmate/provision.log\` in
+this worktree and WAIT for it to finish (it can take several minutes), then retry the
+dev server. If \`.firstmate/provision-failed\` exists, provisioning failed after
+retries: report yourself BLOCKED with that file's contents so the first mate can fix
+the environment -- do NOT silently waive UI evidence. If neither file exists, run the
+repo's prescribed setup script yourself before declaring screenshots impossible.
 If the change isn't visual, or you genuinely can't render it here (no dev server, no keys),
 skip this and describe the change in words instead.
 
