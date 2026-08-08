@@ -37,8 +37,8 @@
 # (needs-decision|blocked|failed) toward waking -- plain `done` deliveries are
 # batch-coalesced and surfaced on the next wake, so a walk-away stretch produces
 # few, digested wakes instead of one per event. AFK never grants more authority;
-# the agent still escalates human/destructive calls to the captain (see the AFK
-# section of SKILL.md).
+# the agent still escalates human/destructive calls to the captain (see
+# reference/afk.md).
 #
 # Usage (the first mate runs this with run_in_background):
 #   fm-watch-bg.sh        # block until an actionable fleet change -> print diff, exit 0

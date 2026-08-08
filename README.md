@@ -23,7 +23,9 @@ Claude/Codex wake behavior.
 - Conservative current-state and progress inspection helpers
 - Persistent scoped secondmates for larger fleets
 
-The complete behavioral contract and helper reference live in [SKILL.md](SKILL.md).
+The behavioral contract lives in [SKILL.md](SKILL.md); branch-specific detail
+(dispatch internals, model routing, no-mistakes mode, live send, watcher internals,
+AFK, secondmates) lives in [`reference/`](reference/).
 
 ## Requirements
 
