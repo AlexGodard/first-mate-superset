@@ -9,3 +9,4 @@ config/crew-dispatch.json
 # Durable watcher/runtime state. Keep the directory's own ignore policy.
 state/*
 !state/.gitignore
+.firecrawl/

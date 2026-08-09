@@ -12,12 +12,16 @@ The crewmate implements, then drives `/no-mistakes` itself: the *pipeline* appli
 fixes, the crewmate only responds to gates, and `ask-user` findings come back to you as
 `needs-decision`. Pipeline → PR → captain merge: highest assurance.
 
-At each gate the crewmate triages on judgment among the three responses — `fix`
-(selected finding ids only), `approve` (accept the residual), `skip` (step doesn't
-apply) — with a two-fix-round cap per step; the brief carries the full rule. The global
-config keeps `auto_fix.review: 0` so review findings *park* for that triage instead of
-being silently self-fixed (2026-08-08: `review: 3` fixed every suggestion wholesale and
-compounded into 70–120-commit piles that never converged).
+Gate mechanics run **vanilla**: the official /no-mistakes skill is the sole authority
+for how the crewmate drives gates (approve/fix/skip on judgment, per the findings
+table's `action` column). The brief layers only first-mate plumbing on top — ask-user
+findings route to the captain via `needs-decision`, and approve/skip responses get a
+one-line status note. The global config keeps `auto_fix.review: 0` (the official
+default) so review findings *park* for that judgment instead of being silently
+self-fixed — 2026-08-08: a `review: 3` override fixed every suggestion wholesale and
+compounded into 70–120-commit piles that never converged. A two-fix-round-per-step cap
+was briefly added the same day, then removed in favor of the official skill's untouched
+guidance; reintroduce it in the brief only if vanilla runs start looping again.
 
 - **Completion convention**: `done: PR <url> checks green` at the **CI-ready return
   point** (checks green), *not* after merge — the captain reviews and merges.

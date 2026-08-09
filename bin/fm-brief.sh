@@ -242,34 +242,19 @@ This project ships through the **no-mistakes** validation gate: pipeline -> PR -
 Setup check first: run \`no-mistakes doctor\`; if it reports the repo is not initialized here, run \`no-mistakes init\`.
 1. Implement the change committed on \`$BRANCH\`.
 2. Validate and ship it through the gate with the /no-mistakes skill (or \`no-mistakes axi run\`).
-   You drive no-mistakes by responding to its gates, not by implementing fixes.
-   Follow the guidance no-mistakes itself provides for the mechanics: it loads when you
+   The skill's own guidance is authoritative for every gate mechanic — how to drive
+   runs, respond to gates (approve/fix/skip), and handle outcomes. It loads when you
    invoke /no-mistakes, and \`no-mistakes axi run --help\` plus the \`help\` lines in each
-   \`axi\` response are authoritative and version-matched to the installed binary.
-   Do not hand-edit, commit, or fix findings yourself while a run is active — the pipeline applies every fix.
-   Keep \`--intent\` at the level of the goal and acceptance criteria — never bake design
-   contracts into it (API shapes, pagination protocols, bound constants, stream counts).
-   The intent is frozen for the entire run and every review round audits against it
-   verbatim, so a design detail that legitimately evolves mid-review re-flags forever
-   with no way to revise it. Design contracts belong in revisable in-repo docs that
-   pipeline fix rounds can update.
-Three first-mate-specific rules layer on top of that guidance:
-- ask-user findings are not yours to answer: append \`needs-decision: <the finding + options>\` to
+   \`axi\` response are version-matched to the installed binary.
+Two first-mate-specific rules layer on top of that guidance — where the skill says
+"the user", your user is the first mate, reachable only through \`.firstmate/status\`:
+- ask-user findings: append \`needs-decision: <the finding + options>\` to
   \`.firstmate/status\` and stop. When the decision comes back, feed it to the gate with
-  \`no-mistakes axi respond\` and let the pipeline apply it — do not route the question to
-  "the user" or implement the fix yourself.
-- Avoid \`--yes\`: the captain, not you, owns the ask-user decisions it would silently auto-resolve.
-- Triage every gate on judgment — all three actions are yours from round one:
-  \`--action fix --findings <ids>\` for findings that are genuine defects in your change
-  (list only those ids, with targeted \`--instructions\`); \`--action approve\` when the
-  remaining findings are residual (style, scope expansion, architectural preference,
-  hypothetical hardening) — add a one-line note in \`.firstmate/status\` listing what you
-  accepted; \`--action skip\` when the step itself doesn't apply to this change — note why.
-  Selective fixes converge; fixing every suggestion wholesale loops for hours.
-- Cap fix rounds at TWO per gate step (the pipeline's internal auto-fix attempts don't
-  count). A genuine defect still standing after your second fix round goes to the
-  captain as \`needs-decision: <finding + your recommendation>\` — round three is a human
-  decision, not another rewrite.
+  \`no-mistakes axi respond\`. Avoid \`--yes\` — it silently auto-resolves the ask-user
+  decisions the captain owns.
+- When you respond \`--action approve\` or \`--action skip\` at a gate, add a one-line
+  note to \`.firstmate/status\` saying what you accepted or skipped and why — the first
+  mate reads gate decisions only from there.
 After /no-mistakes reports CI green (the CI-ready return point — do not keep monitoring in the
 background until merge), append \`done: PR <url> checks green\` to \`.firstmate/status\` and stop.
 You are finished. The captain reviews and merges the PR.
