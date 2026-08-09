@@ -12,6 +12,13 @@ The crewmate implements, then drives `/no-mistakes` itself: the *pipeline* appli
 fixes, the crewmate only responds to gates, and `ask-user` findings come back to you as
 `needs-decision`. Pipeline → PR → captain merge: highest assurance.
 
+At each gate the crewmate triages on judgment among the three responses — `fix`
+(selected finding ids only), `approve` (accept the residual), `skip` (step doesn't
+apply) — with a two-fix-round cap per step; the brief carries the full rule. The global
+config keeps `auto_fix.review: 0` so review findings *park* for that triage instead of
+being silently self-fixed (2026-08-08: `review: 3` fixed every suggestion wholesale and
+compounded into 70–120-commit piles that never converged).
+
 - **Completion convention**: `done: PR <url> checks green` at the **CI-ready return
   point** (checks green), *not* after merge — the captain reviews and merges.
 - **Requirements**: the `no-mistakes` binary on PATH and the repo initialized
@@ -36,7 +43,7 @@ decision consumer is the **pipeline daemon**, not the crewmate — so skip `fm-s
 and answer it yourself from the crew's worktree:
 
 ```sh
-cd <worktree> && no-mistakes axi respond --action approve|fix --findings <ids> \
+cd <worktree> && no-mistakes axi respond --action approve|fix|skip --findings <ids> \
   --instructions "<the captain's decision>"   # background it; blocks until the next gate/outcome
 ```
 

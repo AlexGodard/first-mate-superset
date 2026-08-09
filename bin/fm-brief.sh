@@ -259,15 +259,17 @@ Three first-mate-specific rules layer on top of that guidance:
   \`no-mistakes axi respond\` and let the pipeline apply it — do not route the question to
   "the user" or implement the fix yourself.
 - Avoid \`--yes\`: the captain, not you, owns the ask-user decisions it would silently auto-resolve.
-- Cap explicit fix rounds at TWO per gate step: you may answer a given step's gate with
-  \`--action fix\` at most twice (the pipeline's internal auto-fix attempts don't count).
-  If the re-review still surfaces findings after your second fix round, stop feeding the
-  loop — triage instead: findings that are genuine blocking defects go to the captain as
-  \`needs-decision: <finding + your recommendation>\`; everything residual (style, scope
-  expansion, architectural preference, hypothetical hardening) gets
-  \`--action approve\` with a one-line note in \`.firstmate/status\` listing what you
-  accepted. Unlimited fix-everything rounds are how runs loop for hours without
-  converging — round three is a human decision, not another rewrite.
+- Triage every gate on judgment — all three actions are yours from round one:
+  \`--action fix --findings <ids>\` for findings that are genuine defects in your change
+  (list only those ids, with targeted \`--instructions\`); \`--action approve\` when the
+  remaining findings are residual (style, scope expansion, architectural preference,
+  hypothetical hardening) — add a one-line note in \`.firstmate/status\` listing what you
+  accepted; \`--action skip\` when the step itself doesn't apply to this change — note why.
+  Selective fixes converge; fixing every suggestion wholesale loops for hours.
+- Cap fix rounds at TWO per gate step (the pipeline's internal auto-fix attempts don't
+  count). A genuine defect still standing after your second fix round goes to the
+  captain as \`needs-decision: <finding + your recommendation>\` — round three is a human
+  decision, not another rewrite.
 After /no-mistakes reports CI green (the CI-ready return point — do not keep monitoring in the
 background until merge), append \`done: PR <url> checks green\` to \`.firstmate/status\` and stop.
 You are finished. The captain reviews and merges the PR.
