@@ -6,8 +6,7 @@
 # exit re-invokes the first mate with no captain message -- Claude Code's "wake on
 # background-process completion" capability (firstmate issue #27, flavor 1). This
 # is the faithful port of upstream fm-watch.sh's status-signal scan, minus tmux.
-# It reads local .firstmate/status files and reconciles no-mistakes ship crews
-# against the bounded local daemon CLI (via fm-fleet.sh --reconciled). It NEVER
+# It reads local .firstmate/status files. It NEVER
 # calls git/gh/network inside the loop -- a slow remote can't wedge it (the bug
 # that silently froze an ad-hoc `git ls-remote` watcher). Do network checks
 # (gh pr view, etc.) on wake, not here.
@@ -43,7 +42,7 @@
 # Usage (the first mate runs this with run_in_background):
 #   fm-watch-bg.sh        # block until an actionable fleet change -> print diff, exit 0
 #                         # or exit 0 with "[heartbeat]" after FM_MAX_TICKS (self-heal)
-# On wake: run `fm-fleet.sh --mine --attention --reconciled`, act on
+# On wake: run `fm-fleet.sh --mine --attention`, act on
 # done/blocked/needs-decision/failed, then RE-ARM this watcher while any crew is
 # still in flight.
 #
@@ -56,8 +55,6 @@
 #                       supervisor's fleet changes don't wake you.
 #   FM_ALL              set to watch the GLOBAL fleet (every supervisor's crew)
 #   FM_WATCH_NO_LOCK    bypass the singleton lock (tests / deliberate manual runs)
-#   FM_FLEET_NM_TIMEOUT seconds allowed per local no-mistakes reconciliation
-#                       (default 2)
 #   SUPERSET_WORKTREES  worktree root (passed through to fm-fleet.sh)
 set -u
 
@@ -96,9 +93,8 @@ PAUSE_CHECK="$STATE/.paused-last-check.$WAKE_OWNER"
 # Actionable lines the supervisor has already been shown (arm-time race guard).
 SURFACED="$STATE/.last-surfaced.$WAKE_OWNER"
 
-# Local-only fleet signature: each crew's state + latest authoritative local
-# no-mistakes run state when available. No git/gh/network.
-digest() { "$FLEET" $MINE --reconciled 2>/dev/null; }
+# Local-only fleet signature: each crew's state. No git/gh/network.
+digest() { "$FLEET" $MINE 2>/dev/null; }
 # The captain-relevant subset of the digest: the only thing a wake keys on. While
 # away (state/.afk), narrow further to the AFK-critical subset so routine `done`
 # deliveries batch instead of waking on sight.

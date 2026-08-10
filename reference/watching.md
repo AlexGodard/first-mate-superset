@@ -18,12 +18,9 @@ internal wake prompt into the originating terminal (upstream firstmate
   live lock and exits immediately (two watchers = two wake turns per fleet change). The
   lock releases on exit (trap) and reclaims a dead holder's lock, so a crashed watcher
   never wedges it. `FM_WATCH_NO_LOCK=1` bypasses (tests).
-- **Local and bounded**: it reads local `.firstmate/status` files and, for no-mistakes
-  ship crews, reconciles them against the bounded local `no-mistakes axi status` view —
+- **Local and bounded**: it reads local `.firstmate/status` files —
   never git/gh/network inside the loop, so a slow remote can't wedge it (an ad-hoc
-  `git ls-remote` watcher silently froze on exactly that). The reconciliation catches
-  the direct-response path where the captain runs `axi respond`, the pipeline finishes,
-  and no new status event is appended.
+  `git ls-remote` watcher silently froze on exactly that).
 - **Durable queue**: before exiting on an actionable change, it appends a compact event
   to the per-owner queue (`state/.wake-queue.<owner>`), so the event survives a lost
   background-completion notification. `fm-wake-drain.sh` drains it atomically on wake;
@@ -67,17 +64,9 @@ stable, parseable state (`working|parked|paused|done|blocked|failed`), flags a
 torn-down worktree as `unknown`, and ignores `resolved:` decision-history lines. It is
 read-only and side-effect free. Source precedence:
 
-- **`source: run-step`** — for a ship crew on a branch with a matching no-mistakes run,
-  the run-step is **authoritative**: `running`/`fixing`/`ci` → `working`,
-  `awaiting_approval`/`fix_review` → `parked` (with gate name, finding count, and an
-  `ask-user` marker), terminal `passed`/`checks-passed` → `done`, `failed`/`cancelled`
-  → `failed`. While the ci step runs, a ci-log check upgrades `working` → `done` the
-  moment checks read green, so a green PR is never read as still-validating. A stale
-  `needs-decision`/`blocked` log line the run has moved past is flagged `superseded`.
-  (`FM_CREW_STATE_NO_NM=1` skips the lookup; calls are bounded by
-  `FM_CREW_STATE_NM_TIMEOUT`, default 10s.)
-- **`source: process`** — with no run attributed, positive live-process evidence
-  referencing the worktree may override stale history.
+- **`source: process`** — positive live-process evidence referencing the worktree
+  corroborates a `working` log line (it never overrides an explicit
+  needs-decision/blocked/done/failed event).
 - **`source: status-log`** — otherwise, the log line is a report, not proof that the
   Superset pane is busy.
 

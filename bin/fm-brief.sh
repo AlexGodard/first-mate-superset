@@ -8,7 +8,7 @@
 #   fm-brief.sh --kind ship|scout --mode <mode> --project <name> \
 #               --branch <branch> --workspace <id> --task <text>
 #
-#   --mode      direct-PR|local-only|no-mistakes   (ignored for scout)
+#   --mode      direct-PR|local-only   (ignored for scout)
 #   --branch    the branch Superset created (e.g. fm/add-csv-export)
 #   --workspace Superset workspace id (recorded in meta; "-" if unknown)
 #   --owner     dispatching supervisor's id (fm-lock.sh id); scopes the fleet so
@@ -21,7 +21,7 @@
 #   .firstmate/status  one appended "<state>: <line>" per phase change
 set -eu
 
-KIND=ship MODE=direct-PR PROJECT="" BRANCH="" WORKSPACE="-" OWNER="-" TASK="" ID="" SCOPE="" FORK="" HARNESS=claude
+KIND=ship MODE=direct-PR PROJECT="" BRANCH="" WORKSPACE="-" OWNER="-" TASK="" ID="" SCOPE="" FORK="" HARNESS=claude SURFACE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --kind) KIND=$2; shift 2 ;;
@@ -35,6 +35,7 @@ while [ $# -gt 0 ]; do
     --scope) SCOPE=$2; shift 2 ;;
     --fork) FORK=$2; shift 2 ;;
     --harness) HARNESS=$2; shift 2 ;;
+    --surface) SURFACE=$2; shift 2 ;;         # closed scope: files/call sites in scope (ship only)
     *) echo "error: unknown arg $1" >&2; exit 2 ;;
   esac
 done
@@ -178,8 +179,8 @@ For LONG-RUNNING loops (renders, training epochs, batch scoring, anything >5 min
    script. The supervisor polls that file passively -- it is how you stay legible
    while a single command holds your turn. Status stays for phase changes only.
 If you hit the same obstacle twice, append `blocked: <why>` and stop; the first mate will help.
-If a decision belongs to a human (product choices, destructive actions, ask-user
-   findings), append `needs-decision: <summary of options>` and stop. The first mate replies.
+If a decision belongs to a human (product choices, destructive actions), append
+   `needs-decision: <summary of options>` and stop. The first mate replies.
 EOF
 )
 
@@ -202,8 +203,6 @@ $(meta_block)
 1. Never push to any remote and never open a PR.
 2. Stay inside this worktree; the only files you write outside the repo are none -- everything goes in the worktree.
 3. Use \`gh\` for GitHub operations and the agent-browser skill for browser operations.
-   If a no-mistakes validation gate runs inside this worktree, it is an observer only:
-   it must never invoke first-mate spawn/send/retire/recover or restart a shared gate daemon.
 4. $STATUS_RULES
 $CODEX_NOTES
 
@@ -222,45 +221,6 @@ fi
 # EXTRA_RULES: mode-specific rules appended after the shared status rules.
 EXTRA_RULES=""
 case "$MODE" in
-  no-mistakes)
-    # Ported from upstream firstmate's no-mistakes ship brief (kunchenguid/firstmate
-    # bin/fm-brief.sh, the `*)` default case) onto the Superset model. Local
-    # divergences: the worktree/branch already exist (no checkout step), and the
-    # crewmate runs /no-mistakes directly after implementing instead of waiting
-    # for a follow-up instruction — the local first mate supervises via
-    # fm-crew-state.sh's run-step read, not turn injection.
-    RULE1="1. Never push to the default branch and never merge a PR. Ship ONLY through the no-mistakes gate (\`git push no-mistakes\` / the /no-mistakes skill) — never \`git push origin\` directly."
-    EXTRA_RULES=$(cat <<'EOF'
-5. Never stop, restart, or update the shared `no-mistakes` daemon — it is one instance
-   serving every worktree, so restarting it kills other crews' in-flight pipeline runs.
-   On ANY no-mistakes daemon error, append `blocked: <the daemon error>` and stop;
-   only the first mate manages the daemon.
-EOF
-)
-    DOD=$(cat <<EOF
-This project ships through the **no-mistakes** validation gate: pipeline -> PR -> captain merge.
-Setup check first: run \`no-mistakes doctor\`; if it reports the repo is not initialized here, run \`no-mistakes init\`.
-1. Implement the change committed on \`$BRANCH\`.
-2. Validate and ship it through the gate with the /no-mistakes skill (or \`no-mistakes axi run\`).
-   The skill's own guidance is authoritative for every gate mechanic — how to drive
-   runs, respond to gates (approve/fix/skip), and handle outcomes. It loads when you
-   invoke /no-mistakes, and \`no-mistakes axi run --help\` plus the \`help\` lines in each
-   \`axi\` response are version-matched to the installed binary.
-Two first-mate-specific rules layer on top of that guidance — where the skill says
-"the user", your user is the first mate, reachable only through \`.firstmate/status\`:
-- ask-user findings: append \`needs-decision: <the finding + options>\` to
-  \`.firstmate/status\` and stop. When the decision comes back, feed it to the gate with
-  \`no-mistakes axi respond\`. Avoid \`--yes\` — it silently auto-resolves the ask-user
-  decisions the captain owns.
-- When you respond \`--action approve\` or \`--action skip\` at a gate, add a one-line
-  note to \`.firstmate/status\` saying what you accepted or skipped and why — the first
-  mate reads gate decisions only from there.
-After /no-mistakes reports CI green (the CI-ready return point — do not keep monitoring in the
-background until merge), append \`done: PR <url> checks green\` to \`.firstmate/status\` and stop.
-You are finished. The captain reviews and merges the PR.
-EOF
-)
-    ;;
   local-only)
     RULE1="1. Never push to any remote and never open a PR. Work only on \`$BRANCH\`; the first mate handles the merge into local \`main\`."
     DOD=$(cat <<EOF
@@ -307,13 +267,27 @@ This project contributes to an **upstream parent** via your **fork** (\`$FORK\`)
 EOF
 )
       ;;
-    no-mistakes)
-      # The gate itself handles fork routing: init with the fork URL, keep origin
-      # on the parent (kunchenguid/no-mistakes README "fork contributions").
-      DOD=$(printf '%s\n\nFork setup: `origin` is the upstream parent; if `no-mistakes doctor` reports the repo is not initialized here, initialize with `no-mistakes init --fork-url %s` so the gate pushes to your fork and opens the PR against the parent.' "$DOD" "$FORK")
-      ;;
     *) : ;;   # local-only: no remote, fork is irrelevant
   esac
+fi
+
+# ----- closed scope (--surface): bound the audit surface for invariant-heavy work -----
+# Without this, a brief stating a universally-quantified invariant ("ALL writes go
+# through X") hands a thorough reviewer an unbounded audit surface and the review
+# loop becomes a call-site search that never converges.
+SCOPE_BLOCK=""
+if [ -n "$SURFACE" ]; then
+SCOPE_BLOCK=$(cat <<EOF
+
+# Scope (closed)
+This list is the complete surface of the task — every file you change is on it:
+$SURFACE
+A defect or invariant gap found beyond this surface (by you or a reviewer) is a
+**follow-up**, even when a stated invariant logically extends there: append
+\`needs-decision: follow-up <file>: <one-line summary>\` to \`.firstmate/status\`;
+the first mate files it as a tracker issue.
+EOF
+)
 fi
 
 cat <<EOF
@@ -321,6 +295,7 @@ You are a crewmate: an autonomous worker agent managed by a "first mate" supervi
 
 # Task
 $TASK
+$SCOPE_BLOCK
 
 # Setup
 You are inside a fresh Superset git worktree of **$PROJECT**, already on branch \`$BRANCH\`.
@@ -332,8 +307,6 @@ $(meta_block)
 $RULE1
 2. Stay inside this worktree; modify nothing outside it.
 3. Use \`gh\` for GitHub operations and the agent-browser skill for browser operations.
-   If a no-mistakes validation gate runs inside this worktree, it is an observer only:
-   it must never invoke first-mate spawn/send/retire/recover or restart a shared gate daemon.
 4. $STATUS_RULES
 $EXTRA_RULES
 $CODEX_NOTES

@@ -5,7 +5,7 @@ available through your Superset CLI.
 
 Fields: `name | mode | yolo | projectId | fork`
 
-- `mode`: `direct-PR`, `local-only`, or `no-mistakes`
+- `mode`: `direct-PR` or `local-only`
 - `yolo`: `off` by default; `on` permits routine approvals but never destructive,
   irreversible, or security-sensitive actions
 - `projectId`: the Superset CLI/cloud project ID, or `-` to resolve it live
@@ -14,6 +14,5 @@ Fields: `name | mode | yolo | projectId | fork`
 <!-- registry:begin -->
 example-app | direct-PR | off | -
 internal-tool | local-only | off | -
-high-assurance-app | no-mistakes | off | -
 upstream-project | direct-PR | off | - | git@github.com:your-name/upstream-project.git
 <!-- registry:end -->

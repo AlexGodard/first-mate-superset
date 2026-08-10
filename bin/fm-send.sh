@@ -59,8 +59,6 @@
 set -eu
 
 BIN_SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-. "$BIN_SELF/fm-gate-refuse-lib.sh"
-fm_refuse_gate_agent send || exit $?
 "$BIN_SELF/fm-watch-guard.sh" >/dev/null || true
 
 WRAP=1

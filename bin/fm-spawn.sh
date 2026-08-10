@@ -10,7 +10,7 @@
 #
 #   --scout       dispatch a read-only investigator (report deliverable); default is ship.
 #   --branch      override the auto-derived slug (the leaf; the fm/ or scout/ prefix is added).
-#   --mode        override the registry delivery mode for a ship (direct-PR|local-only|no-mistakes).
+#   --mode        override the registry delivery mode for a ship (direct-PR|local-only).
 #   --host <id>   dispatch to a remote host instead of --local.
 #
 # Batch mode loops IN BASH and re-execs the single path per line, so the caller
@@ -32,11 +32,9 @@ SKILL_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN="$SKILL_ROOT/bin"
 WTROOT="${SUPERSET_WORKTREES:-$HOME/.superset/worktrees}"
 CONFIG="${FM_CONFIG_OVERRIDE:-$SKILL_ROOT/config}"
-. "$BIN/fm-gate-refuse-lib.sh"
-fm_refuse_gate_agent spawn || exit $?
 "$BIN/fm-watch-guard.sh" >/dev/null || true
 
-KIND=ship BRANCH_OVERRIDE="" MODE_OVERRIDE="" HOST="" BATCH=0 FORK_OVERRIDE="" CREW_MODEL="${FM_CREW_MODEL:-}" CREW_EFFORT="${FM_CREW_EFFORT:-}"
+KIND=ship BRANCH_OVERRIDE="" MODE_OVERRIDE="" HOST="" BATCH=0 FORK_OVERRIDE="" CREW_MODEL="${FM_CREW_MODEL:-}" CREW_EFFORT="${FM_CREW_EFFORT:-}" SURFACE=""
 POS=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -46,6 +44,7 @@ while [ $# -gt 0 ]; do
     --mode) MODE_OVERRIDE=$2; shift 2 ;;
     --model) CREW_MODEL=$2; shift 2 ;;
     --effort) CREW_EFFORT=$2; shift 2 ;;
+    --surface) SURFACE=$2; shift 2 ;;
     --fork) FORK_OVERRIDE=$2; shift 2 ;;
     --host) HOST=$2; shift 2 ;;
     --batch) BATCH=1; shift ;;
@@ -87,6 +86,7 @@ if [ "$BATCH" = 1 ]; then
   [ -n "$HOST" ] && passthru+=(--host "$HOST")
   [ -n "$CREW_MODEL" ] && passthru+=(--model "$CREW_MODEL")
   [ -n "$CREW_EFFORT" ] && passthru+=(--effort "$CREW_EFFORT")
+  # (--surface is intentionally NOT batch-shared: a closed scope list is per-task by nature)
   rc=0 n=0
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in ''|'#'*) continue ;; esac
@@ -111,29 +111,16 @@ TASK="${POS[*]:1}"
 [ -n "${TASK//[[:space:]]/}" ] || { echo "error: a task description is required" >&2; exit 2; }
 
 # 1. delivery config (mode/yolo/fork) from the registry; flags override for a ship.
-# Resolved BEFORE the consultation backstop so a mode-specific model default (below)
-# can satisfy it — the no-mistakes gate has a fixed harness, so it self-resolves.
 eval "$("$BIN/fm-registry.sh" resolve "$PROJECT")"   # sets mode= yolo= projectId= fork=
 MODE="$mode"; YOLO="$yolo"; FORK="${fork:--}"
 if [ -n "$MODE_OVERRIDE" ]; then
   case "$MODE_OVERRIDE" in
-    direct-PR|local-only|no-mistakes) MODE="$MODE_OVERRIDE" ;;
-    *) echo "error: --mode must be direct-PR|local-only|no-mistakes" >&2; exit 2 ;;
+    direct-PR|local-only) MODE="$MODE_OVERRIDE" ;;
+    *) echo "error: --mode must be direct-PR|local-only" >&2; exit 2 ;;
   esac
 fi
 [ -n "$FORK_OVERRIDE" ] && FORK="$FORK_OVERRIDE"
 [ "$KIND" = scout ] && MODE=scout
-
-# 1b. no-mistakes default harness. The no-mistakes validation gate runs on the
-# Codex harness — a ship left to the Claude default would drive the wrong
-# gate. So when a no-mistakes ship carries no explicit --model, default the crew to
-# gpt-5.6-terra at high effort (the /no-mistakes CLI's harness). An explicit
-# --model/--effort always wins; other modes are untouched. This also satisfies the
-# consultation backstop below without the supervisor hand-passing the flag.
-if [ "$MODE" = no-mistakes ]; then
-  [ -n "$CREW_MODEL" ]  || CREW_MODEL=gpt-5.6-terra
-  [ -n "$CREW_EFFORT" ] || CREW_EFFORT=high
-fi
 
 # 2. consultation backstop. When a dispatch profile (config/crew-dispatch.json)
 # is active, the FIRST MATE must resolve a model from its rules and pass --model
@@ -182,9 +169,11 @@ AGENT_ARGS=(resolve)
 eval "$("$BIN/fm-agent.sh" "${AGENT_ARGS[@]}" "$PROJECT")"   # sets agent= agent_label= agent_ctx= agent_harness= agent_pin=
 
 # 5. brief (harness-aware: Codex crews get the persistent-session dev-server recipe)
+BRIEF_EXTRA=()
+[ -n "$SURFACE" ] && BRIEF_EXTRA+=(--surface "$SURFACE")
 BRIEF=$("$BIN/fm-brief.sh" --kind "$KIND" --mode "$MODE" --project "$PROJECT" \
   --branch "$BRANCH" --owner "$OWNER" --fork "${FORK:--}" \
-  --harness "${agent_harness:-claude}" --task "$TASK")
+  --harness "${agent_harness:-claude}" --task "$TASK" ${BRIEF_EXTRA[@]+"${BRIEF_EXTRA[@]}"})
 
 # 6. create the v2-visible worktree + spawn the crewmate in one CLI call.
 # Stage the model pin FIRST (keyed by the deterministic worktree path): the agent
@@ -245,9 +234,8 @@ fi
 # 7.5. Provision the worktree's dev environment (per-app env files, ports,
 # Convex dev deployment) ourselves. Superset stopped running the repo's
 # `.superset/config.json` setup hook for CLI-created workspaces (~Jul 2026:
-# fired Jul 3/15, dead by Jul 23) — crews landed in bare worktrees, and every
-# no-mistakes gate worktree then failed sibling adoption ("no same-branch
-# provisioned sibling"), so UI screenshots were impossible fleet-wide.
+# fired Jul 3/15, dead by Jul 23) — crews landed in bare worktrees, so UI
+# screenshots were impossible fleet-wide.
 # Backgrounded: cold setup takes minutes, the crew implements long before it
 # needs a dev server, and the predev guard blocks `dev` until the sentinel
 # lands. Local dispatch only; no-op when the repo has no setup script or the

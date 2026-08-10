@@ -31,7 +31,7 @@ integration work out of upstream's core.
 | `fm-brief.sh` brief | the `--prompt` passed to `ws create` (`bin/fm-brief.sh`) |
 | `fm-watch.sh` tmux watcher | `bin/fm-watch-bg.sh` (native background completion) / `bin/fm-watch-superset.sh` (verified wake injection into Superset-hosted Codex) |
 | `fm-send.sh` (type into the live tmux pane) | `bin/fm-send.sh` — verified injection into the crewmate's live desktop PTY via the fork CLI's `agents send` |
-| status files / turn-end hooks | crewmate-local `.firstmate/status`, plus bounded no-mistakes run-state reconciliation |
+| status files / turn-end hooks | crewmate-local `.firstmate/status` |
 | `data/projects.md` registry | `registry.md` (`bin/fm-registry.sh`), cross-project |
 | committed `AGENTS.md` memory | `bin/fm-ensure-memory.sh` (non-clobbering) |
 | local merge gate | `bin/fm-merge-local.sh` |

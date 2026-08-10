@@ -5,9 +5,6 @@ Reference for the reply branch of [`SKILL.md`](../SKILL.md): how
 failure code means. Reach for this when a send fails or you need to understand the
 verification mechanics.
 
-Exception first: a parked no-mistakes `ask-user` gate is answered directly with
-`axi respond`, never via fm-send — see [`no-mistakes.md`](no-mistakes.md).
-
 ## Mechanics
 
 The reply lands **in the running desktop session**: `fm-send.sh` calls the fork CLI's

@@ -37,7 +37,6 @@ cat > "$REG" <<'EOF'
 testproj | direct-PR | off | testpid123
 otherproj | direct-PR | off | otherpid456
 forkproj | direct-PR | off | forkpid789 | git@github.com:me/upstream-fork.git
-nmproj | no-mistakes | off | nmpid000
 <!-- registry:end -->
 EOF
 export FIRST_MATE_REGISTRY="$REG"
@@ -71,6 +70,7 @@ out=$(FM_DRY_RUN=1 "$BIN/fm-spawn.sh" --branch fixed-slug testproj "whatever" 2>
 check "--branch override has no rand suffix" '[[ "$out" == *"branch=fm/fixed-slug "* ]]' "$out"
 out=$(FM_OWNER=stable-secondmate FM_DRY_RUN=1 "$BIN/fm-spawn.sh" testproj "owned task" 2>/dev/null)
 check "explicit FM_OWNER is preserved for nested crew" '[[ "$out" == *"owner=stable-secondmate"* ]]' "$out"
+check "spawn rejects a bogus --mode" '! FM_DRY_RUN=1 "$BIN/fm-spawn.sh" --mode yolo-mode testproj "x" >/dev/null 2>&1' 
 
 echo "== fm-spawn batch (zsh-safe stdin loop) =="
 out=$(FM_DRY_RUN=1 "$BIN/fm-spawn.sh" --batch <<'B' 2>/dev/null
@@ -322,68 +322,6 @@ out=$(FM_OWNER=wakeowner "$BIN/fm-wake-drain.sh")
 check "drain returns queued event" '[[ "$out" == *"declared external wait recheck"* ]]' "$out"
 check "drain atomically clears queue" '[ ! -s "$FM_STATE_OVERRIDE/.wake-queue.wakeowner" ]'
 
-echo "== gate authority boundary =="
-check "no-mistakes gate cannot spawn" '! NO_MISTAKES_GATE=1 FM_DRY_RUN=1 "$BIN/fm-spawn.sh" testproj "x" >/dev/null 2>&1'
-check "ordinary dry-run remains allowed" 'FM_DRY_RUN=1 "$BIN/fm-spawn.sh" testproj "x" >/dev/null 2>&1'
-b=$("$BIN/fm-brief.sh" --kind ship --mode direct-PR --project testproj --branch fm/gate --task x)
-check "brief forbids gate fleet control" '[[ "$b" == *"observer only"* && "$b" == *"never invoke first-mate"* ]]'
-
-echo "== no-mistakes delivery mode (ported back from kunchenguid/no-mistakes) =="
-out=$("$BIN/fm-registry.sh" resolve nmproj 2>/dev/null)
-check "registry accepts no-mistakes mode" '[[ "$out" == *"mode=no-mistakes"* ]]' "$out"
-out=$(FM_DRY_RUN=1 "$BIN/fm-spawn.sh" nmproj "gate this" 2>/dev/null)
-check "spawn resolves no-mistakes mode" '[[ "$out" == *"mode=no-mistakes"* ]]' "$out"
-check "nm mode defaults crew to terra/high on codex" '[[ "$out" == *"model=gpt-5.6-terra"* && "$out" == *"effort=high"* && "$out" == *"harness=codex"* ]]' "$out"
-out=$(FM_DRY_RUN=1 "$BIN/fm-spawn.sh" --model claude-opus-4-8 --effort medium nmproj "gate this" 2>/dev/null)
-check "nm explicit --model overrides terra default" '[[ "$out" == *"model=claude-opus-4-8[1m]"* && "$out" == *"effort=medium"* && "$out" == *"harness=claude"* ]]' "$out"
-out=$(FM_DRY_RUN=1 "$BIN/fm-spawn.sh" --scout nmproj "just look" 2>/dev/null)
-check "nm scout keeps instance default (no terra)" '[[ "$out" == *"mode=scout"* && "$out" == *"model=default"* ]]' "$out"
-check "spawn rejects a bogus --mode" '! FM_DRY_RUN=1 "$BIN/fm-spawn.sh" --mode yolo-mode testproj "x" >/dev/null 2>&1'
-b=$("$BIN/fm-brief.sh" --kind ship --mode no-mistakes --project nmproj --branch fm/nm-x --task "gate this")
-check "nm brief bakes gate DoD" '[[ "$b" == *"no-mistakes doctor"* && "$b" == *"checks green"* ]]'
-check "nm brief escalates ask-user via needs-decision" '[[ "$b" == *"axi respond"* && "$b" == *"needs-decision"* ]]'
-check "nm brief forbids --yes and daemon restarts" '[[ "$b" == *'"'"'Avoid `--yes`'"'"'* && "$b" == *"Never stop, restart, or update the shared"* ]]'
-b=$("$BIN/fm-brief.sh" --kind ship --mode no-mistakes --project nmproj --branch fm/nm-x --fork git@github.com:me/f.git --task "x")
-check "nm brief routes forks through init --fork-url" '[[ "$b" == *"--fork-url git@github.com:me/f.git"* ]]'
-
-echo "== fm-crew-state no-mistakes run-step =="
-NMWT="$SUPERSET_WORKTREES/nmpid000/fm/nm-cs"; mkdir -p "$NMWT/.firstmate"
-( cd "$NMWT" && git init -q . && git commit -q --allow-empty -m x && git checkout -qb fm/nm-cs ) 2>/dev/null
-printf 'project=nmproj\nkind=ship\nmode=no-mistakes\nbranch=fm/nm-cs\n' > "$NMWT/.firstmate/meta"
-printf 'needs-decision: gate question\n' > "$NMWT/.firstmate/status"
-cat > "$STUB/no-mistakes" <<'EOF'
-#!/usr/bin/env bash
-case "${NM_STUB_SCENARIO:-parked}" in
-  parked)
-    [ "$1 $2" = "axi status" ] && printf 'id: r1\nbranch: fm/nm-cs\nstatus: awaiting_approval\ngate: review\nfindings[2]{id,t}:\n  a,x\n  b,ask-user: y\n'
-    ;;
-  resumed)
-    [ "$1 $2" = "axi status" ] && printf 'id: r1\nbranch: fm/nm-cs\nstatus: running\n'
-    ;;
-  green)
-    [ "$1 $2" = "axi status" ] && printf 'id: r1\nbranch: fm/nm-cs\nstatus: ci\nsteps[5]{s,st,f}:\n  ci,running,0\n'
-    [ "$1 $2" = "axi logs" ] && echo "all CI checks passed - still monitoring until merged or closed"
-    ;;
-  coarse)
-    [ "$1 $2" = "axi status" ] && printf 'id: r2\nbranch: fm/other\nstatus: running\n'
-    [ "$1" = runs ] && printf 'running    fm/nm-cs   abc123   2026-07-20\n'
-    ;;
-esac
-exit 0
-EOF
-chmod +x "$STUB/no-mistakes"
-out=$(NM_STUB_SCENARIO=parked "$BIN/fm-crew-state.sh" "$NMWT")
-check "run-step parked at gate + findings + ask-user" '[[ "$out" == *"state: parked"* && "$out" == *"run-step"* && "$out" == *"2 finding(s)"* && "$out" == *"ask-user"* ]]' "$out"
-out=$(NM_STUB_SCENARIO=resumed "$BIN/fm-crew-state.sh" "$NMWT")
-check "resumed run supersedes stale needs-decision log" '[[ "$out" == *"state: working"* && "$out" == *"superseded"* ]]' "$out"
-out=$(NM_STUB_SCENARIO=green "$BIN/fm-crew-state.sh" "$NMWT")
-check "ci-log green overrides working -> done" '[[ "$out" == *"state: done"* && "$out" == *"checks green"* ]]' "$out"
-out=$(NM_STUB_SCENARIO=coarse "$BIN/fm-crew-state.sh" "$NMWT")
-check "coarse runs-list fallback attributes branch" '[[ "$out" == *"state: working"* && "$out" == *"background run"* ]]' "$out"
-out=$(FM_CREW_STATE_NO_NM=1 "$BIN/fm-crew-state.sh" "$NMWT")
-check "FM_CREW_STATE_NO_NM falls back to status log" '[[ "$out" == *"status-log"* ]]' "$out"
-rm -f "$STUB/no-mistakes"
-
 echo "== structured fleet snapshot =="
 snap=$(FM_SNAPSHOT_LIMIT=5 "$BIN/fm-fleet-snapshot.sh")
 check "snapshot schema is stable" 'printf "%s" "$snap" | python3 -c '\''import json,sys; assert json.load(sys.stdin)["schema"] == "fm-superset-snapshot.v1"'\''' "$snap"
@@ -406,13 +344,6 @@ if bash "$SKILL_ROOT/tests/fm-watch-superset.sh"; then
   ok "durable, deduplicated, transcript-verified self wake"
 else
   bad "Superset/Codex self wake"
-fi
-
-echo "== no-mistakes terminal completion watcher =="
-if bash "$SKILL_ROOT/tests/fm-watch-no-mistakes.sh"; then
-  ok "direct gate response reaches one durable terminal wake"
-else
-  bad "no-mistakes terminal completion wake"
 fi
 
 echo "== deterministic ShellCheck =="

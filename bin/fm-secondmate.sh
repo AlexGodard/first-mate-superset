@@ -27,7 +27,6 @@ STATE="${FM_STATE_OVERRIDE:-$SKILL_ROOT/state}"
 REG="${FM_SECONDMATE_REGISTRY:-$STATE/secondmates.md}"
 WTROOT="${SUPERSET_WORKTREES:-$HOME/.superset/worktrees}"
 mkdir -p "$STATE"
-. "$BIN/fm-gate-refuse-lib.sh"
 
 # Registry format (pipe-delimited, between markers):
 #   <id> | <workspaceId> | <home-project> | <scope csv> | <worktree> | <added-iso>
@@ -91,7 +90,6 @@ valid_id() { case "$1" in ''|*[!a-zA-Z0-9_-]*) return 1 ;; *) return 0 ;; esac; 
 cmd=${1:-}; shift || true
 case "$cmd" in
   spawn)
-    fm_refuse_gate_agent secondmate-spawn || exit $?
     ID=${1:-}; shift || true
     SCOPE="" HOME_PROJ="" BRANCH_OVERRIDE="" HOST="" SM_MODEL="${FM_CREW_MODEL:-}" SM_EFFORT="${FM_CREW_EFFORT:-}"
     while [ $# -gt 0 ]; do
@@ -190,7 +188,6 @@ except Exception: print("")')
     ;;
 
   route)
-    fm_refuse_gate_agent secondmate-route || exit $?
     ID=${1:-}; shift || true
     valid_id "$ID" || { echo "error: bad secondmate id '$ID'" >&2; exit 2; }
     MSG="$*"
@@ -207,7 +204,6 @@ Handle this per your charter: confirm it is within your scope, dispatch a crewma
     ;;
 
   retire)
-    fm_refuse_gate_agent secondmate-retire || exit $?
     ID=${1:-}; shift || true
     FORCE=0; [ "${1:-}" = "--force" ] && FORCE=1
     valid_id "$ID" || { echo "error: bad secondmate id '$ID'" >&2; exit 2; }
@@ -238,7 +234,6 @@ Handle this per your charter: confirm it is within your scope, dispatch a crewma
     ;;
 
   recover)
-    fm_refuse_gate_agent secondmate-recover || exit $?
     ID=${1:-}; valid_id "$ID" || { echo "error: bad secondmate id '$ID'" >&2; exit 2; }
     [ -n "$(reg_line "$ID")" ] || { echo "error: secondmate '$ID' not registered" >&2; exit 2; }
     set +e

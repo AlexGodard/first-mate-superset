@@ -12,19 +12,17 @@ Claude/Codex wake behavior.
 ## What it includes
 
 - One-call ship and scout dispatch through `superset ws create`
-- Per-project delivery modes: `direct-PR`, `local-only`, and `no-mistakes`
+- Per-project delivery modes: `direct-PR` and `local-only`
 - Claude and Codex custom-agent routing
 - Owner-scoped fleets, so concurrent supervisors cannot act on one another's crew
 - Live, transcript-verified captain-to-crewmate replies
 - Durable watcher wakes with benign-churn filtering and AFK batching
 - Superset/Codex turn injection with transcript verification
-- Authoritative no-mistakes run reconciliation, including completion after a direct
-  `axi respond` that writes no new crewmate status event
 - Conservative current-state and progress inspection helpers
 - Persistent scoped secondmates for larger fleets
 
 The behavioral contract lives in [SKILL.md](SKILL.md); branch-specific detail
-(dispatch internals, model routing, no-mistakes mode, live send, watcher internals,
+(dispatch internals, model routing, live send, watcher internals,
 AFK, secondmates) lives in [`reference/`](reference/).
 
 ## Requirements
@@ -37,7 +35,6 @@ AFK, secondmates) lives in [`reference/`](reference/).
   - `agents list`
   - `agents send` for live reply and Codex wake injection
 - Superset custom agents named `Claude` and/or `Codex`
-- Optional: `no-mistakes` for the highest-assurance delivery mode
 - Optional: ShellCheck 0.11.0 for deterministic lint parity
 
 This repository expects a machine-level `superset-launch` command for per-dispatch
@@ -99,7 +96,7 @@ bash tests/run.sh
 ```
 
 The suite stubs Superset and desktop calls. It exercises dispatch, ownership,
-delivery-mode briefs, current-state reconciliation, live-send verification, durable
+delivery-mode briefs, current-state reads, live-send verification, durable
 wakes, Claude-style background completion, and the Superset/Codex injection adapter.
 
 ## Runtime state

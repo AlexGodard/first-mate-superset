@@ -12,9 +12,6 @@
 set -eu
 
 BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-. "$BIN/fm-gate-refuse-lib.sh"
-fm_refuse_gate_agent merge-local || exit $?
-
 PROJ=${1:?usage: fm-merge-local.sh <project-main-repo-path> <branch>}
 BRANCH=${2:?usage: fm-merge-local.sh <project-main-repo-path> <branch>}
 [ -d "$PROJ/.git" ] || git -C "$PROJ" rev-parse --git-dir >/dev/null 2>&1 || {

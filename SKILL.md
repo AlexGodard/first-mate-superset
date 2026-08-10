@@ -23,8 +23,6 @@ Reference for the deeper branches (reach these when the branch fires):
   verification, CLI-vs-MCP rationale, desktop-open mechanics.
 - [`reference/models.md`](reference/models.md) — custom agents, launch-pin plumbing,
   the dispatch-profile format.
-- [`reference/no-mistakes.md`](reference/no-mistakes.md) — the no-mistakes delivery
-  mode and its parked gates.
 - [`reference/send.md`](reference/send.md) — `fm-send.sh` mechanics and exit codes.
 - [`reference/watching.md`](reference/watching.md) — watcher internals and crew-state
   semantics.
@@ -50,12 +48,25 @@ registry (`registry.md`; edit it to onboard a project or change its delivery mod
 
 ## Dispatch
 
+0. **Shape invariant-heavy work before spawning.** A brief stating a
+   universally-quantified invariant ("ALL writes go through X") hands any
+   reviewer an unbounded audit surface, and review becomes a call-site
+   search (WAV-716 ran 21 rounds). Bound it at dispatch:
+   - **Scout first, then close the scope**: a `--scout` enumerates the real
+     surface (call sites, write paths, legacy row shapes); the ship carries that
+     closed list via `--surface "<list>"`, and findings outside it self-route to
+     follow-ups.
+   - **Chokepoint slice first**: when the invariant isn't structurally enforced
+     yet, ship a small slice that makes bypasses type errors, then the feature
+     slice against that narrow surface.
+   - **Concurrency seams ship as their own slice**, against a design accepted
+     before implementation — a locking protocol designed one review round at a
+     time is the churn engine.
 1. **Pick the crewmate's model/effort.** When `config/crew-dispatch.json` exists, read
    its rules and match by judgment — precedence: explicit captain override → best-fit
    rule → profile default — then pass concrete `--model`/`--effort` flags (`fm-spawn`
    refuses a profile-era dispatch without `--model`; `FM_DRY_RUN=1` is exempt). Without
-   a profile, flags are optional. A no-mistakes ship with no `--model` defaults to
-   `gpt-5.6-terra` at `high` (the gate runs on the Codex harness). Claude ids (or
+   a profile, flags are optional. Claude ids (or
    none) → the Claude agent; `gpt-*`/`codex-*` ids → the Codex agent. Details and
    plumbing: [`reference/models.md`](reference/models.md).
 2. **Spawn with `fm-spawn.sh`** — one call runs registry resolve → cloud-project →
@@ -103,21 +114,17 @@ reports `done`:
   ```
   It fast-forwards the project's default branch; it refuses a diverged or dirty tree
   (have the crewmate rebase and retry).
-- **no-mistakes**: the crewmate ships through the no-mistakes validation gate
-  (pipeline → PR → captain merge, highest assurance); completion is
-  `done: PR <url> checks green` — the captain merges. Mode contract, the shared-daemon
-  rule, and parked-gate handling: [`reference/no-mistakes.md`](reference/no-mistakes.md).
 
 **Fork routing (upstream contributions).** A registry row with a `fork` URL (5th
 column) contributes to an upstream parent you can't push to: the crewmate pushes to
 your fork and opens the PR **against the parent**. Orthogonal to the mode — `direct-PR`
-pushes to the fork remote + `gh pr create --head <fork-owner>:…`; `no-mistakes` inits
-with `no-mistakes init --fork-url <url>`; `local-only` has no remote so it's ignored.
+pushes to the fork remote + `gh pr create --head <fork-owner>:…`; `local-only` has no
+remote so it's ignored.
 Read automatically from the registry; override with `fm-spawn.sh --fork <url>`.
 Delivery is unchanged — relay the (now upstream) PR URL to the captain.
 
 **yolo** (per-project): when `on`, you may make routine approval calls yourself (PR
-merges, `local-only` merges, `ask-user` findings). When `off`, bring those to the
+merges, `local-only` merges). When `off`, bring those to the
 captain. **Always escalate** destructive, irreversible, or security-sensitive actions
 regardless of yolo.
 
@@ -129,7 +136,6 @@ Read the fleet on demand with `fm-fleet.sh`. Use `--mine` to see only your own c
 ```sh
 "$SKILL_ROOT/bin/fm-fleet.sh" --mine              # your crew, one line each
 "$SKILL_ROOT/bin/fm-fleet.sh" --mine --attention  # only yours needing you (done|blocked|needs-decision|failed)
-"$SKILL_ROOT/bin/fm-fleet.sh" --mine --reconciled # replace stale no-mistakes events with authoritative local run state
 "$SKILL_ROOT/bin/fm-fleet.sh" --raw               # global view + worktree paths (overview only)
 ```
 
@@ -148,7 +154,7 @@ owner, so a duplicate arm exits immediately. Internals:
 [`reference/watching.md`](reference/watching.md).
 
 **On every wake**: run `fm-wake-drain.sh`, do any network checks (`gh pr view`, CI)
-now — never inside the watcher — then `fm-fleet.sh --mine --attention --reconciled`,
+now — never inside the watcher — then `fm-fleet.sh --mine --attention`,
 act on **every** attention line, and re-arm `fm-watch-bg.sh` while any crew is still in
 flight. Stop re-arming once the fleet is idle.
 
@@ -173,10 +179,9 @@ states:
   ```
   It verifies delivery against the crew's transcript and **fails hard** naming any
   missing precondition — fix that precondition rather than papering over it (exit codes
-  and mechanics: [`reference/send.md`](reference/send.md)). Exception: a parked
-  no-mistakes `ask-user` gate is answered **directly** with `no-mistakes axi respond`
-  from the crew's worktree — the pipeline daemon consumes the decision, not the
-  crewmate ([`reference/no-mistakes.md`](reference/no-mistakes.md)).
+  and mechanics: [`reference/send.md`](reference/send.md)). Never expand the task's
+  contract mid-flight: a decision that amounts to a new requirement routes to a
+  follow-up task, not into the running crew.
 - **blocked** → read the worktree (`--raw` gives the path) and help, or escalate.
 - **failed** → inspect the session and report; retry or explain what blocks it.
 
@@ -192,8 +197,8 @@ line:
 # -> state: working|parked|paused|done|blocked|failed|unknown · source: run-step|process|status-log|none · <detail>
 ```
 
-A matching no-mistakes run is authoritative (`source: run-step`); a plain `status-log`
-source is a report, not proof the pane is busy. Re-engage with `fm-send.sh` **only**
+A `status-log` source is a report, not proof the pane is busy.
+Re-engage with `fm-send.sh` **only**
 when the session is genuinely idle, and confirm delivery claims against ground truth —
 `gh pr view`, the remote branch head, the Superset session UI. Deeper signals
 (`fm-progress.sh`) and the full source semantics:
@@ -213,7 +218,7 @@ when a task is explicitly about doing so.
    `fm-merge-local.sh` and approved PR merges. Crewmates do their state-changing git in
    their own worktrees.
 2. **Crewmates stay in their worktree.** The brief enforces this; don't override it.
-3. **Escalate human calls.** `needs-decision` / `ask-user` findings, and anything
+3. **Escalate human calls.** `needs-decision` findings, and anything
    destructive/irreversible/security-sensitive, go to the captain — unless `yolo=on`
    covers the routine ones (never the destructive ones).
 4. **Unregistered project → safe default** (`direct-PR off`). Never silently grant
@@ -222,9 +227,6 @@ when a task is explicitly about doing so.
    deliver through `--mine` (needs `FM_OWNER`); never deliver or tear down crew you
    don't own.
 6. **Report faithfully.** If a crewmate failed or you skipped a delivery step, say so.
-7. **Gate agents never drive the fleet.** No-mistakes validation agents are read-only
-   observers; `spawn`, `send`, secondmate mutation, and recovery refuse their
-   environment.
 
 ## Helper index
 
@@ -234,7 +236,7 @@ One line per script; behavior detail lives in the topic sections above, the
 | Script | Purpose |
 | --- | --- |
 | `bin/fm-spawn.sh` | one-call ship/scout dispatch; `--batch` fan-out |
-| `bin/fm-fleet.sh` | fleet digest (`--mine`, `--attention`, `--reconciled`, `--raw`); surfaces `PROVISION-FAILED` |
+| `bin/fm-fleet.sh` | fleet digest (`--mine`, `--attention`, `--raw`); surfaces `PROVISION-FAILED` |
 | `bin/fm-send.sh` | verified live reply into a crewmate's running session |
 | `bin/fm-crew-state.sh` | conservative current state for one crew |
 | `bin/fm-progress.sh` | read-only progress peek: status + progress tails, live processes, freshest artifacts |

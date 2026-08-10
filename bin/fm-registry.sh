@@ -53,11 +53,7 @@ case "$cmd" in
     yolo=$(echo "$line"  | awk -F'|' '{gsub(/^[ \t]+|[ \t]+$/,"",$3); print $3}')
     pid=$(echo "$line"   | awk -F'|' '{gsub(/^[ \t]+|[ \t]+$/,"",$4); print $4}')
     fork=$(echo "$line"  | awk -F'|' '{gsub(/^[ \t]+|[ \t]+$/,"",$5); print $5}')
-    # no-mistakes restored 2026-07 (upstream kunchenguid/no-mistakes gate). Unknown
-    # projects still fall back to direct-PR (deliberate local divergence: upstream
-    # defaults to no-mistakes, but here the gate must be explicitly opted into per
-    # project because it requires `no-mistakes init` on the repo first).
-    case "$mode" in direct-PR|local-only|no-mistakes) ;; *) echo "warn: unknown mode \"$mode\" for $NAME; using direct-PR" >&2; mode=direct-PR ;; esac
+    case "$mode" in direct-PR|local-only) ;; *) echo "warn: unknown mode \"$mode\" for $NAME; using direct-PR" >&2; mode=direct-PR ;; esac
     case "$yolo" in on|off) ;; *) yolo=off ;; esac
     [ -n "$pid" ] || pid='-'
     [ -n "$fork" ] || fork='-'

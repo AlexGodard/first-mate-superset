@@ -8,7 +8,6 @@
 #   fm-fleet.sh --raw      # also print the worktree path
 #   fm-fleet.sh --attention  # only crew needing the first mate (done|blocked|needs-decision|failed)
 #   fm-fleet.sh --mine     # only crew this session owns (meta owner == $FM_OWNER)
-#   fm-fleet.sh --reconciled  # replace stale no-mistakes events with authoritative run state
 #
 # --mine scopes the fleet so concurrent supervisors never act on each other's crew
 # (there is no supervisor mutex -- many run in parallel; crew ownership is the only
@@ -28,15 +27,13 @@
 set -eu
 
 ROOT="${SUPERSET_WORKTREES:-$HOME/.superset/worktrees}"
-BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-RAW=0 ATTN=0 MINE=0 RECONCILED=0
+RAW=0 ATTN=0 MINE=0
 for a in "$@"; do
   case "$a" in
     --raw) RAW=1 ;;
     --attention) ATTN=1 ;;
     --mine) MINE=1 ;;
-    --reconciled) RECONCILED=1 ;;
-    *) echo "usage: fm-fleet.sh [--raw] [--attention] [--mine] [--reconciled]" >&2; exit 2 ;;
+    *) echo "usage: fm-fleet.sh [--raw] [--attention] [--mine]" >&2; exit 2 ;;
   esac
 done
 OWNER="${FM_OWNER:-}"
@@ -57,7 +54,7 @@ while IFS= read -r meta; do
   if [ "$MINE" = 1 ] && [ "$(get owner)" != "$OWNER" ]; then
     hidden=$((hidden+1)); continue           # belongs to another supervisor
   fi
-  project=$(get project); kind=$(get kind); branch=$(get branch); mode=$(get mode)
+  project=$(get project); kind=$(get kind); branch=$(get branch)
   [ -n "$project" ] || project="?"
   [ -n "$kind" ] || kind="?"
   [ -n "$branch" ] || branch="-"
@@ -68,33 +65,6 @@ while IFS= read -r meta; do
   fi
   state=${last%%:*}
   [ "$state" = "$last" ] && state="working"   # no colon -> treat as working
-
-  # A no-mistakes run can advance after the captain answers its daemon directly,
-  # without another crewmate status event. In reconciled views, replace only a
-  # positively attributed run-step result; all other crews retain their original
-  # append-only status line. The local CLI call is bounded so a sick shared daemon
-  # cannot wedge fleet supervision.
-  if [ "$RECONCILED" = 1 ] && [ "$kind" = ship ] && [ "$mode" = no-mistakes ]; then
-    current=$(FM_CREW_STATE_NM_TIMEOUT="${FM_FLEET_NM_TIMEOUT:-2}" \
-      "$BIN/fm-crew-state.sh" "$dir" 2>/dev/null || true)
-    case "$current" in
-      "state: "*" · source: run-step · "*)
-        current_state=${current#state: }
-        current_state=${current_state%% *}
-        detail=${current#*" · source: run-step · "}
-        case "$current_state" in
-          parked)
-            state=needs-decision
-            last="needs-decision: $detail"
-            ;;
-          working|done|failed|blocked|paused)
-            state=$current_state
-            last="$current_state: $detail"
-            ;;
-        esac
-        ;;
-    esac
-  fi
 
   # Surface a failed provisioning run (fm-provision.sh marker): the crew may
   # still be working, but UI evidence is doomed until the first mate intervenes,
