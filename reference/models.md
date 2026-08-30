@@ -29,6 +29,23 @@ local fallbacks (a `--host` dispatch must resolve live), and `FM_AGENT_ID=<uuid>
 the exact agent. Renaming an agent in **Superset → Settings → Agents** breaks the label
 match — update `fm-agent.sh` if a label changes.
 
+## Fixed agent presets
+
+Use `fm-spawn.sh --agent-preset <label>` when a Superset combo agent already carries
+both `--pin-model` and `--pin-effort` in its configured args. The resolver reads that
+agent live, validates both pins, and derives the Claude/Codex harness from its command.
+The fixed preset satisfies an active dispatch profile without staging a per-worktree
+pin, and cannot be combined with `--model` or `--effort`.
+
+```sh
+"$SKILL_ROOT/bin/fm-spawn.sh" --agent-preset "Codex · sol · high" \
+  <project> "<task>"
+```
+
+Preset labels are host-specific configuration: a remote dispatch resolves the same
+label on that host and fails before workspace creation when it is absent or not a
+fixed Claude/Codex combo agent.
+
 ## How the pin threads through
 
 Env exported by `fm-spawn` never reaches the crewmate — the Superset desktop daemon

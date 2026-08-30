@@ -19,6 +19,16 @@ cat > "$STUB/superset" <<'EOF'
 case "$1 $2" in
   "ws create") echo '{"workspace":{"id":"ws-test-1"},"agents":[{"kind":"terminal","sessionId":"term-test-1"}]}' ;;
   "ws delete") echo "deleted $3" ;;
+  "agents list")
+    if [[ " $* " != *" --local "* ]]; then echo '[]'; exit 0; fi
+    cat <<'JSON'
+[
+  {"id":"claude-live-agent","label":"Claude","command":"/tmp/superset-launch","args":["claude","--dangerously-skip-permissions"]},
+  {"id":"codex-live-agent","label":"Codex","command":"/tmp/superset-launch","args":["codex","--dangerously-bypass-approvals-and-sandbox"]},
+  {"id":"sol-high-agent","label":"Codex · sol · high","command":"/tmp/superset-launch","args":["codex","--pin-model","gpt-5.6-sol","--pin-effort","high","--dangerously-bypass-approvals-and-sandbox"]}
+]
+JSON
+    ;;
   "projects list") echo '[]' ;;
   *) : ;;
 esac
@@ -98,6 +108,13 @@ out=$("$BIN/fm-agent.sh" resolve --model codex-mini testproj 2>/dev/null)
 check "codex-* model -> Codex"        '[[ "$out" == *"agent_label='"'"'Codex'"'"'"* && "$out" == *"agent_harness=codex"* ]]' "$out"
 out=$(FM_AGENT_ID=my-uuid "$BIN/fm-agent.sh" resolve testproj 2>/dev/null)
 check "FM_AGENT_ID forces the uuid"  '[[ "$out" == *"agent=my-uuid "* ]]' "$out"
+out=$("$BIN/fm-agent.sh" resolve --preset "Codex · sol · high" testproj 2>/dev/null)
+check "fixed preset resolves its live uuid" '[[ "$out" == *"agent=sol-high-agent "* ]]' "$out"
+check "fixed preset infers Codex harness" '[[ "$out" == *"agent_harness=codex"* ]]' "$out"
+check "fixed preset reports model+effort" '[[ "$out" == *"agent_model='"'"'gpt-5.6-sol'"'"'"* && "$out" == *"agent_effort='"'"'high'"'"'"* && "$out" == *"agent_preset=on"* ]]' "$out"
+check "generic agent is not a fixed preset" '! "$BIN/fm-agent.sh" resolve --preset Codex testproj >/dev/null 2>&1'
+check "missing fixed preset errors" '! "$BIN/fm-agent.sh" resolve --preset Missing testproj >/dev/null 2>&1'
+check "preset and model are exclusive" '! "$BIN/fm-agent.sh" resolve --preset "Codex · sol · high" --model gpt-5.6-sol testproj >/dev/null 2>&1'
 check "--host w/o live resolve errors" '! "$BIN/fm-agent.sh" resolve --host remote1 testproj >/dev/null 2>&1'
 
 echo "== fm-launch harness launcher (pin restore) =="
@@ -206,6 +223,10 @@ out=$(FM_DRY_RUN=1 "$BIN/fm-spawn.sh" --model gpt-5.5 forkproj "ship it" 2>/dev/
 check "gpt ship dry-runs on the codex harness" '[[ "$out" == *"model=gpt-5.5"* && "$out" == *"harness=codex"* ]]' "$out"
 out=$(FM_DRY_RUN=1 "$BIN/fm-spawn.sh" --model gpt-5.6-sol testproj "ship it" 2>/dev/null)
 check "gpt-5.6 ship dry-runs on the codex harness" '[[ "$out" == *"model=gpt-5.6-sol"* && "$out" == *"harness=codex"* ]]' "$out"
+out=$(FM_DRY_RUN=1 "$BIN/fm-spawn.sh" --agent-preset "Codex · sol · high" testproj "ship it" 2>/dev/null)
+check "fixed preset dry-run reports real route" '[[ "$out" == *"agent=Codex · sol · high"* && "$out" == *"model=gpt-5.6-sol"* && "$out" == *"effort=high"* && "$out" == *"harness=codex"* ]]' "$out"
+check "fixed preset rejects per-dispatch model" '! FM_DRY_RUN=1 "$BIN/fm-spawn.sh" --agent-preset "Codex · sol · high" --model gpt-5.6-sol testproj "x" >/dev/null 2>&1'
+check "fixed preset rejects per-dispatch effort" '! FM_DRY_RUN=1 "$BIN/fm-spawn.sh" --agent-preset "Codex · sol · high" --effort high testproj "x" >/dev/null 2>&1'
 # a secondmate runs this skill and is claude-only: every gpt-*/codex-* id refuses
 check "secondmate refuses gpt models (claude-only tier)" '! "$BIN/fm-secondmate.sh" spawn smgpt --scope testproj --project testproj --model gpt-5.5 >/dev/null 2>&1'
 check "secondmate refuses gpt-5.6 too" '! "$BIN/fm-secondmate.sh" spawn smsol --scope testproj --project testproj --model gpt-5.6-sol >/dev/null 2>&1'
@@ -220,6 +241,8 @@ out=$(FM_DRY_RUN=1 "$BIN/fm-spawn.sh" testproj "x" 2>/dev/null)
 check "dry-run is exempt from backstop"          '[[ "$out" == *"DRYRUN spawn"* ]]' "$out"
 out=$("$BIN/fm-spawn.sh" --branch bkstp --model claude-opus-4-8 testproj "x" 2>/dev/null)
 check "explicit --model satisfies backstop"      '[[ "$out" == *"workspace=ws-test-1"* ]]' "$out"
+out=$("$BIN/fm-spawn.sh" --branch preset-bkstp --agent-preset "Codex · sol · high" testproj "x" 2>/dev/null)
+check "fixed --agent-preset satisfies backstop"  '[[ "$out" == *"agent=Codex · sol · high"* && "$out" == *"model=gpt-5.6-sol effort=high"* ]]' "$out"
 rm -f "$CFG/crew-dispatch.json"; unset FM_CONFIG_OVERRIDE
 
 echo "== fm-brief secondmate charter =="
