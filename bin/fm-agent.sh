@@ -21,10 +21,15 @@
 #   gpt-* / codex-*      → Codex  (pin: -m / -c model_reasoning_effort; the
 #                          gpt-5.6 family is sol / terra / luna)
 #
+# A fixed Superset combo agent can be selected by label instead. Its command
+# must carry both --pin-model and --pin-effort; the resolver reads those args
+# live and derives the actual harness, so callers do not need per-dispatch
+# model/effort overrides.
+#
 # Usage:
-#   fm-agent.sh resolve [--model <id>] [--host <hostId>] <project-name-or-pid>
+#   fm-agent.sh resolve [--model <id> | --preset <label>] [--host <hostId>] <project-name-or-pid>
 # Prints (eval-able):
-#   agent=<uuid> agent_label=… agent_ctx=personal agent_harness=<claude|codex> agent_pin=<live|inert|unknown>
+#   agent=<uuid> agent_label=… agent_ctx=personal agent_harness=<claude|codex> agent_pin=<live|inert|unknown> agent_model=… agent_effort=… agent_preset=<on|off>
 #
 # agent_pin says whether the agent's Command consumes the per-dispatch
 # model/effort pin: `live` when it routes through superset-launch (or the old
@@ -37,20 +42,25 @@
 #   FM_CODEX_AGENT_ID    offline fallback for the local Codex agent
 set -eu
 
-usage() { echo "usage: fm-agent.sh resolve [--model <id>] [--host <hostId>] <project-name-or-pid>" >&2; exit 2; }
+usage() { echo "usage: fm-agent.sh resolve [--model <id> | --preset <label>] [--host <hostId>] <project-name-or-pid>" >&2; exit 2; }
 
 [ "${1:-}" = resolve ] || usage
 shift
-MODEL="" HOST="" PROJ=""
+MODEL="" PRESET="" HOST="" PROJ=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --model) MODEL=$2; shift 2 ;;
+    --preset) PRESET=$2; shift 2 ;;
     --host) HOST=$2; shift 2 ;;
     -*) usage ;;
     *) PROJ=$1; shift ;;
   esac
 done
 [ -n "$PROJ" ] || usage
+[ -z "$MODEL" ] || [ -z "$PRESET" ] || {
+  echo "error: --model and --preset are mutually exclusive" >&2
+  exit 2
+}
 
 case "$MODEL" in
   gpt-*|codex-*)
@@ -64,8 +74,19 @@ case "$MODEL" in
 esac
 CTX=personal
 
-ID="${FM_AGENT_ID:-}"
+ID=""
 PIN=unknown
+AGENT_MODEL=""
+AGENT_EFFORT=""
+IS_PRESET=off
+if [ -n "$PRESET" ]; then
+  LABEL="$PRESET"
+  FALLBACK=""
+  IS_PRESET=on
+elif [ -n "${FM_AGENT_ID:-}" ]; then
+  ID="$FM_AGENT_ID"
+fi
+
 if [ -z "$ID" ] && command -v superset >/dev/null 2>&1; then
   LOC=(--local); [ -n "$HOST" ] && LOC=(--host "$HOST")
   hit=$(superset agents list "${LOC[@]}" --json 2>/dev/null | python3 -c '
@@ -79,18 +100,61 @@ for a in (ags if isinstance(ags, list) else []):
     if a.get("label") == lbl:
         print(a.get("id", ""))
         print(a.get("command", ""))
+        args = a.get("args") or []
+        harness = ""
+        command = str(a.get("command", ""))
+        command_base = command.rsplit("/", 1)[-1]
+        if command_base in ("codex", "claude"):
+            harness = command_base
+        elif "superset-launch" in command and args:
+            if args[0] in ("codex", "claude"):
+                harness = args[0]
+        model = effort = ""
+        for idx, arg in enumerate(args):
+            if arg == "--pin-model" and idx + 1 < len(args):
+                model = str(args[idx + 1])
+            elif isinstance(arg, str) and arg.startswith("--pin-model="):
+                model = arg.split("=", 1)[1]
+            elif arg == "--pin-effort" and idx + 1 < len(args):
+                effort = str(args[idx + 1])
+            elif isinstance(arg, str) and arg.startswith("--pin-effort="):
+                effort = arg.split("=", 1)[1]
+        print(harness)
+        print(model)
+        print(effort)
         break
 ' "$LABEL" 2>/dev/null || true)
   ID=$(printf '%s\n' "$hit" | sed -n 1p)
   CMD=$(printf '%s\n' "$hit" | sed -n 2p)
+  RESOLVED_HARNESS=$(printf '%s\n' "$hit" | sed -n 3p)
+  AGENT_MODEL=$(printf '%s\n' "$hit" | sed -n 4p)
+  AGENT_EFFORT=$(printf '%s\n' "$hit" | sed -n 5p)
   if [ -n "$ID" ]; then
     case "$CMD" in
       *superset-launch*|*fm-launch.sh*|*fm-ccs-route.sh*) PIN=live ;;
       ?*) PIN=inert ;;
     esac
+    if [ -n "$PRESET" ]; then
+      case "$RESOLVED_HARNESS" in
+        claude|codex) HARNESS="$RESOLVED_HARNESS" ;;
+        *)
+          echo "error: agent preset '$LABEL' does not resolve to a Claude or Codex harness" >&2
+          exit 1 ;;
+      esac
+      if [ -z "$AGENT_MODEL" ] || [ -z "$AGENT_EFFORT" ]; then
+        echo "error: agent preset '$LABEL' must define both --pin-model and --pin-effort in its Superset args" >&2
+        exit 1
+      fi
+    fi
   fi
 fi
 if [ -z "$ID" ]; then
+  if [ -n "$PRESET" ]; then
+    LOCATION=--local
+    [ -n "$HOST" ] && LOCATION="--host $HOST"
+    echo "error: cannot resolve fixed agent preset '$LABEL'${HOST:+ on host $HOST} (check: superset agents list $LOCATION --json)" >&2
+    exit 1
+  fi
   if [ -n "$HOST" ]; then
     echo "error: cannot resolve custom agent '$LABEL' on host $HOST — instance IDs are host-specific (check: superset agents list --host $HOST)" >&2
     exit 1
@@ -104,4 +168,5 @@ if [ -z "$ID" ]; then
   ID="$FALLBACK"
 fi
 
-printf "agent=%s agent_label='%s' agent_ctx=%s agent_harness=%s agent_pin=%s\n" "$ID" "$LABEL" "$CTX" "$HARNESS" "$PIN"
+printf "agent=%s agent_label='%s' agent_ctx=%s agent_harness=%s agent_pin=%s agent_model='%s' agent_effort='%s' agent_preset=%s\n" \
+  "$ID" "$LABEL" "$CTX" "$HARNESS" "$PIN" "$AGENT_MODEL" "$AGENT_EFFORT" "$IS_PRESET"

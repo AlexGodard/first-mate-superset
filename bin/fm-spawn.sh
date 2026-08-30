@@ -5,12 +5,14 @@
 # zsh-safe BATCH mode (ported from upstream firstmate#33).
 #
 # Usage:
-#   fm-spawn.sh [--scout] [--branch <slug>] [--mode <m>] [--host <id>] <project> <task...>
+#   fm-spawn.sh [--scout] [--branch <slug>] [--mode <m>] [--agent-preset <label>] [--host <id>] <project> <task...>
 #   fm-spawn.sh --batch [--scout] [--host <id>]      # stdin: "<project>\t<task>" per line
 #
 #   --scout       dispatch a read-only investigator (report deliverable); default is ship.
 #   --branch      override the auto-derived slug (the leaf; the fm/ or scout/ prefix is added).
 #   --mode        override the registry delivery mode for a ship (direct-PR|local-only).
+#   --agent-preset select a fixed Superset combo agent by label; mutually exclusive
+#                  with --model/--effort and does not stage a per-dispatch pin.
 #   --host <id>   dispatch to a remote host instead of --local.
 #
 # Batch mode loops IN BASH and re-execs the single path per line, so the caller
@@ -34,7 +36,7 @@ WTROOT="${SUPERSET_WORKTREES:-$HOME/.superset/worktrees}"
 CONFIG="${FM_CONFIG_OVERRIDE:-$SKILL_ROOT/config}"
 "$BIN/fm-watch-guard.sh" >/dev/null || true
 
-KIND=ship BRANCH_OVERRIDE="" MODE_OVERRIDE="" HOST="" BATCH=0 FORK_OVERRIDE="" CREW_MODEL="${FM_CREW_MODEL:-}" CREW_EFFORT="${FM_CREW_EFFORT:-}" SURFACE=""
+KIND=ship BRANCH_OVERRIDE="" MODE_OVERRIDE="" HOST="" BATCH=0 FORK_OVERRIDE="" CREW_MODEL="${FM_CREW_MODEL:-}" CREW_EFFORT="${FM_CREW_EFFORT:-}" AGENT_PRESET="" SURFACE=""
 POS=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -44,6 +46,7 @@ while [ $# -gt 0 ]; do
     --mode) MODE_OVERRIDE=$2; shift 2 ;;
     --model) CREW_MODEL=$2; shift 2 ;;
     --effort) CREW_EFFORT=$2; shift 2 ;;
+    --agent-preset) AGENT_PRESET=$2; shift 2 ;;
     --surface) SURFACE=$2; shift 2 ;;
     --fork) FORK_OVERRIDE=$2; shift 2 ;;
     --host) HOST=$2; shift 2 ;;
@@ -54,6 +57,10 @@ while [ $# -gt 0 ]; do
   esac
 done
 case "$KIND" in ship|scout) ;; *) echo "error: --kind must be ship|scout" >&2; exit 2 ;; esac
+if [ -n "$AGENT_PRESET" ] && { [ -n "$CREW_MODEL" ] || [ -n "$CREW_EFFORT" ]; }; then
+  echo "error: --agent-preset is mutually exclusive with --model/--effort (including FM_CREW_MODEL/FM_CREW_EFFORT)" >&2
+  exit 2
+fi
 if [ -n "$CREW_EFFORT" ]; then
   case "$CREW_EFFORT" in
     low|medium|high|xhigh|max) ;;
@@ -84,6 +91,7 @@ if [ "$BATCH" = 1 ]; then
   passthru=()
   [ "$KIND" = scout ] && passthru+=(--scout)
   [ -n "$HOST" ] && passthru+=(--host "$HOST")
+  [ -n "$AGENT_PRESET" ] && passthru+=(--agent-preset "$AGENT_PRESET")
   [ -n "$CREW_MODEL" ] && passthru+=(--model "$CREW_MODEL")
   [ -n "$CREW_EFFORT" ] && passthru+=(--effort "$CREW_EFFORT")
   # (--surface is intentionally NOT batch-shared: a closed scope list is per-task by nature)
@@ -129,8 +137,8 @@ fi
 # the supervisor previews a resolution before committing to it. Ported from
 # upstream firstmate (AGENTS.md "consultation backstop"). See
 # reference/models.md "The dispatch profile".
-if [ -z "${FM_DRY_RUN:-}" ] && [ -z "$CREW_MODEL" ] && [ -f "$CONFIG/crew-dispatch.json" ]; then
-  echo "error: config/crew-dispatch.json is active — pass an explicit --model resolved from the dispatch rules (the consultation backstop, so the profile is never silently skipped). Preview with FM_DRY_RUN=1." >&2
+if [ -z "${FM_DRY_RUN:-}" ] && [ -z "$CREW_MODEL" ] && [ -z "$AGENT_PRESET" ] && [ -f "$CONFIG/crew-dispatch.json" ]; then
+  echo "error: config/crew-dispatch.json is active — pass an explicit --model resolved from the dispatch rules or a fixed --agent-preset. Preview with FM_DRY_RUN=1." >&2
   exit 2
 fi
 
@@ -146,14 +154,25 @@ if [ "$KIND" = scout ]; then BRANCH="scout/$LEAF"; else BRANCH="fm/$LEAF"; fi
 # Ordinary first mates have no override and keep the session-derived owner id.
 OWNER="${FM_OWNER:-$("$BIN/fm-lock.sh" id 2>/dev/null || echo -)}"
 
+if [ -n "$AGENT_PRESET" ]; then
+  PRESET_ARGS=(resolve --preset "$AGENT_PRESET")
+  [ -n "$HOST" ] && PRESET_ARGS+=(--host "$HOST")
+  eval "$("$BIN/fm-agent.sh" "${PRESET_ARGS[@]}" "$PROJECT")"
+fi
+
 if [ -n "${FM_DRY_RUN:-}" ]; then
   # Dry-run validates model routing without creating a workspace. Claude ids
   # (or none) → the Claude agent; gpt-*/codex-* ids → the Codex agent.
-  _h=claude
-  case "$CREW_MODEL" in
-    gpt-*|codex-*) _h=codex ;;
-  esac
-  echo "DRYRUN spawn $KIND $PROJECT branch=$BRANCH mode=$MODE yolo=$YOLO fork=${FORK:--} model=${CREW_MODEL:-default} effort=${CREW_EFFORT:-default} harness=$_h owner=$OWNER host=${HOST:-local}"
+  _h=${agent_harness:-claude}
+  if [ -z "$AGENT_PRESET" ]; then
+    case "$CREW_MODEL" in
+      gpt-*|codex-*) _h=codex ;;
+      *) _h=claude ;;
+    esac
+  fi
+  _model=${agent_model:-${CREW_MODEL:-default}}
+  _effort=${agent_effort:-${CREW_EFFORT:-default}}
+  echo "DRYRUN spawn $KIND $PROJECT branch=$BRANCH mode=$MODE yolo=$YOLO fork=${FORK:--} agent=${agent_label:-auto} model=$_model effort=$_effort harness=$_h owner=$OWNER host=${HOST:-local}"
   exit 0
 fi
 
@@ -163,10 +182,12 @@ PID=$("$BIN/fm-registry.sh" cloud-project "$PROJECT")
 # 4b. resolve the CUSTOM AGENT instance UUID (the `claude` preset was removed;
 # `ws create --agent` needs a HostAgentConfig id). Claude ids (or none) → the
 # Claude agent; gpt-*/codex-* ids → the Codex agent. See bin/fm-agent.sh.
-AGENT_ARGS=(resolve)
-[ -n "$CREW_MODEL" ] && AGENT_ARGS+=(--model "$CREW_MODEL")
-[ -n "$HOST" ] && AGENT_ARGS+=(--host "$HOST")
-eval "$("$BIN/fm-agent.sh" "${AGENT_ARGS[@]}" "$PROJECT")"   # sets agent= agent_label= agent_ctx= agent_harness= agent_pin=
+if [ -z "$AGENT_PRESET" ]; then
+  AGENT_ARGS=(resolve)
+  [ -n "$CREW_MODEL" ] && AGENT_ARGS+=(--model "$CREW_MODEL")
+  [ -n "$HOST" ] && AGENT_ARGS+=(--host "$HOST")
+  eval "$("$BIN/fm-agent.sh" "${AGENT_ARGS[@]}" "$PROJECT")"
+fi
 
 # 5. brief (harness-aware: Codex crews get the persistent-session dev-server recipe)
 BRIEF_EXTRA=()
@@ -265,4 +286,6 @@ else
   fi
 fi
 
-echo "spawned $KIND $PROJECT branch=$BRANCH mode=$MODE yolo=$YOLO agent=$agent_label model=${CREW_MODEL:-default} effort=${CREW_EFFORT:-default} workspace=$WSID worktree=$WT"
+DISPLAY_MODEL=${agent_model:-${CREW_MODEL:-default}}
+DISPLAY_EFFORT=${agent_effort:-${CREW_EFFORT:-default}}
+echo "spawned $KIND $PROJECT branch=$BRANCH mode=$MODE yolo=$YOLO agent=$agent_label model=$DISPLAY_MODEL effort=$DISPLAY_EFFORT workspace=$WSID worktree=$WT"

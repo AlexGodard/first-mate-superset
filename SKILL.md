@@ -62,10 +62,12 @@ registry (`registry.md`; edit it to onboard a project or change its delivery mod
    - **Concurrency seams ship as their own slice**, against a design accepted
      before implementation — a locking protocol designed one review round at a
      time is the churn engine.
-1. **Pick the crewmate's model/effort.** When `config/crew-dispatch.json` exists, read
+1. **Pick the crewmate's model/effort or fixed agent preset.** When `config/crew-dispatch.json` exists, read
    its rules and match by judgment — precedence: explicit captain override → best-fit
    rule → profile default — then pass concrete `--model`/`--effort` flags (`fm-spawn`
-   refuses a profile-era dispatch without `--model`; `FM_DRY_RUN=1` is exempt). Without
+   refuses a profile-era dispatch without `--model` or `--agent-preset`; `FM_DRY_RUN=1`
+   is exempt). Use `--agent-preset <label>` when a Superset combo agent already carries
+   fixed model and effort pins; do not combine it with `--model`/`--effort`. Without
    a profile, flags are optional. Claude ids (or
    none) → the Claude agent; `gpt-*`/`codex-*` ids → the Codex agent. Details and
    plumbing: [`reference/models.md`](reference/models.md).
@@ -73,12 +75,13 @@ registry (`registry.md`; edit it to onboard a project or change its delivery mod
    branch/slug → brief → `ws create` → capture-session → open, and prints a summary
    line:
    ```sh
-   "$SKILL_ROOT/bin/fm-spawn.sh" [--model <m> --effort <e>] <project> "<full task + acceptance criteria + context>"
+   "$SKILL_ROOT/bin/fm-spawn.sh" [--model <m> --effort <e> | --agent-preset <label>] <project> "<full task + acceptance criteria + context>"
    "$SKILL_ROOT/bin/fm-spawn.sh" --scout <project> "<investigation>"   # read-only investigator
    # -> spawned ship <project> branch=fm/<slug> mode=<m> yolo=<y> agent=<label> workspace=<id> worktree=<path>
    ```
    Put everything the crewmate needs in the task text — it works alone and can only
-   reach you via `needs-decision`. `--branch <leaf>` overrides the derived slug,
+   reach you via `needs-decision`. `--agent-preset <label>` resolves and validates a
+   fixed Superset combo agent live; `--branch <leaf>` overrides the derived slug,
    `--mode <m>` overrides the registry mode, `--host <id>` dispatches remotely, and
    `FM_DRY_RUN=1` previews the resolved plan before a big fan-out. It aborts loudly if
    the agent failed to launch, and always background-opens the workspace so the captain
